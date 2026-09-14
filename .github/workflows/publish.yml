@@ -1,0 +1,50 @@
+name: Publish official installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: HTTPS direct URL of the official installer
+        required: true
+        type: string
+      version:
+        description: Version string shown by the official source
+        required: true
+        type: string
+      platform:
+        description: macos, windows, or linux
+        required: true
+        type: string
+      arch:
+        description: arm64, x64, or universal
+        required: true
+        type: string
+      filename:
+        description: Release filename, including extension
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download official installer
+        env:
+          URL: ${{ inputs.url }}
+          FILENAME: ${{ inputs.filename }}
+        run: |
+          case "$URL" in https://*) ;; *) echo 'Only HTTPS URLs are accepted'; exit 1;; esac
+          curl --fail --location --retry 3 --output "$FILENAME" "$URL"
+      - name: Create checksum
+        run: sha256sum "${{ inputs.filename }}" > "${{ inputs.filename }}.sha256"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ inputs.version }}-${{ inputs.platform }}-${{ inputs.arch }}"
+          gh release create "$tag" "${{ inputs.filename }}" "${{ inputs.filename }}.sha256" \
+            --title "ChatGPT ${{ inputs.version }} (${{ inputs.platform }}/${{ inputs.arch }})" \
+            --notes "Unofficial convenience mirror of the official installer.\n\nOfficial source URL: ${{ inputs.url }}\nDownloaded by GitHub Actions on $(date -u +%F). Verify the SHA-256 file before installation."
