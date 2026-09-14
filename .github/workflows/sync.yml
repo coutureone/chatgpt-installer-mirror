@@ -1,0 +1,44 @@
+name: Sync official ChatGPT installers
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch official download page
+        run: |
+          curl --fail --location --retry 3 --max-time 60 https://chatgpt.com/download/ -o page.html
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('page.html').read_text(errors='ignore')
+          urls=sorted(set(re.findall(r'https://[^"\\ ]+(?:\\.dmg|\\.pkg|\\.exe|\\.msi)(?:[^"\\ ]*)',text,re.I)))
+          if not urls:
+              raise SystemExit('No official installer URL found on download page')
+          Path('urls.txt').write_text('\\n'.join(urls)+'\\n')
+          print('Found', len(urls), 'installer URL(s)')
+          print('\\n'.join(urls))
+          PY
+      - name: Download discovered installers
+        run: |
+          mkdir -p dist
+          while IFS= read -r url; do
+            name=$(basename "${url%%\?*}")
+            [ -n "$name" ] || continue
+            curl --fail --location --retry 3 --max-time 600 --output "dist/$name" "$url"
+            sha256sum "dist/$name" > "dist/$name.sha256"
+          done < urls.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$(find dist -type f -not -name '*.sha256' -print -quit)"
+          tag="sync-$(date -u +%Y%m%d-%H%M)"
+          gh release create "$tag" dist/* --title "ChatGPT official installers $(date -u +%F)" --notes "Files fetched directly by GitHub Actions from https://chatgpt.com/download/. Unofficial convenience mirror; verify checksums before installation."
